@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: learn-with-data
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
