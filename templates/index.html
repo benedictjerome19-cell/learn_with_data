@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Consistency Pulse™ | Enterprise Learning & Analytics Tracker</title>
+  <meta name="description" content="High-usability, enterprise-grade progressive web application for tracking learning velocity, 52-week GitHub-style consistency, and multi-stack analytics." />
+  <link rel="manifest" href="/manifest.json" />
+  <meta name="theme-color" content="#6366f1" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <meta name="session-timeout-minutes" content="{{ session_timeout_minutes }}" />
+  <script>
+    // Apply the saved theme before first paint to avoid a dark/light flash
+    try { if (localStorage.getItem('pulse_theme') === 'light') document.documentElement.classList.remove('dark'); } catch (e) {}
+  </script>
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            display: ['Outfit', 'sans-serif']
+          },
+          colors: {
+            pulse: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              800: '#3730a3',
+              900: '#312e81'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- FontAwesome 6 Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <!-- Chart.js 4.4 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="/static/styles.css?v=3" />
+</head>
+<body class="min-h-screen antialiased selection:bg-indigo-500 selection:text-white" data-role="{{ user.role }}">
+
+  <!-- Toast Notification Stack Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Server flash messages (e.g. welcome after registration) are shown as toasts -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    <script id="flash-data" type="application/json">{{ messages | tojson }}</script>
+  {% endwith %}
+
+  <!-- Heatmap Floating Tooltip -->
+  <div id="heatmap-tooltip" class="heatmap-tooltip"></div>
+
+  <!-- Top Glass Navigation Bar -->
+  <header class="sticky top-0 z-50 glass-header px-4 lg:px-8 py-3.5 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      
+      <!-- Brand Logo & App Pulse Indicator -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <i class="fa-solid fa-bolt text-white text-lg"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-display font-bold text-xl tracking-tight text-white">Consistency<span class="text-indigo-400">Pulse</span></span>
+          </div>
+          <p class="text-[11px] text-slate-400 hidden sm:block">Full-Stack Learning & Engineering Velocity Tracker</p>
+        </div>
+      </div>
+
+      <!-- Center: Multi-Language Fast Slicing Filter Pills -->
+      <div class="hidden md:flex items-center gap-1.5 bg-slate-800/80 p-1 rounded-full border border-slate-700/60 shadow-inner" id="filter-pills-container">
+        <!-- Injected dynamically via JS: All, Python, SQL, Java, Docker, Machine Learning -->
+      </div>
+
+      <!-- Right Action Bar: Theme, Session, User Profile, Sync -->
+      <div class="flex items-center gap-2.5">
+        
+        <!-- Background Sync Live Badge -->
+        <div id="sync-status-badge" class="hidden xl:flex items-center text-xs px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 sync-pulse mr-1.5"></span>
+          Ready to sync
+        </div>
+
+        <!-- Session Timeout Countdown -->
+        <div class="hidden lg:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-400" title="Security Session Timeout">
+          <i class="fa-regular fa-clock text-indigo-400 text-xs"></i>
+          <span id="session-timer-badge" class="font-mono font-medium text-slate-200">{{ session_timeout_minutes }}:00</span>
+        </div>
+
+        <!-- Dark/Light Mode Toggle -->
+        <button id="theme-toggle-btn" type="button" aria-label="Toggle light or dark theme" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 flex items-center justify-center transition" title="Toggle Theme (Saved to LocalStorage)">
+          <i id="theme-icon" class="fa-solid fa-sun text-amber-400"></i>
+        </button>
+
+        <!-- User Role Profile Pill (opens account settings) -->
+        <button type="button" id="account-btn" title="Account settings" class="flex items-center gap-2 pl-2 border-l border-slate-700/60 rounded-lg hover:opacity-90 transition">
+          <span class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white text-xs shadow-md" style="background-color: {{ user.avatar_color }};">
+            {{ user.username[0].upper() }}
+          </span>
+          <span class="hidden sm:block text-left">
+            <span class="block text-xs font-semibold text-slate-200 leading-none">{{ user.username }}</span>
+            <span class="block text-[10px] uppercase font-bold text-indigo-400 tracking-wider">{{ user.role }}</span>
+          </span>
+        </button>
+
+        <!-- Logout Action (POST + CSRF so other sites cannot sign you out) -->
+        <form action="/logout" method="POST" class="m-0">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <button type="submit" aria-label="Sign out" class="w-9 h-9 rounded-lg bg-slate-800 hover:bg-rose-500/20 hover:text-rose-400 border border-slate-700 text-slate-400 flex items-center justify-center transition" title="Sign Out">
+            <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
+          </button>
+        </form>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Dashboard Container -->
+  <main class="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+
+    <!-- Top Action & Export Bar -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 glass-card p-4">
+      <div>
+        <h1 class="text-xl sm:text-2xl font-display font-bold text-white flex items-center gap-2">
+          Engineering Mastery Dashboard
+        </h1>
+        <p class="text-xs text-slate-400">Continuous concept retention, moving averages, and automated spreadsheet reconciliation</p>
+      </div>
+
+      <!-- Export & Excel Sync Action Buttons -->
+      <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        
+        <!-- Instant Sync to Excel Now -->
+        <button id="sync-now-btn" type="button" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition shadow-sm">
+          <i class="fa-solid fa-cloud-arrow-up text-indigo-400"></i>
+          <span>Sync to Excel Now</span>
+        </button>
+
+        <!-- Download Formatted Excel Workbook -->
+        <a href="/export/excel" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/20 transition">
+          <i class="fa-solid fa-file-excel"></i>
+          <span>Export Excel (.xlsx)</span>
+        </a>
+
+        <!-- Download Executive PDF Summary Report -->
+        <a href="/export/pdf" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20 transition">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span>Export PDF Report</span>
+        </a>
+
+      </div>
+    </div>
+
+    <!-- Mobile Multi-Language Pills Bar -->
+    <div class="md:hidden flex overflow-x-auto pb-1 gap-1.5" id="mobile-filter-container">
+      <!-- Mirror of pills for mobile viewports -->
+    </div>
+
+    <!-- 1. EXECUTIVE KPI SCORECARDS (Pillar 2: Advanced Analytics Engine) -->
+    <section class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3.5">
+      
+      <!-- Card: Total Hours -->
+      <div class="glass-card p-4 relative overflow-hidden group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium uppercase tracking-wider">Total Time</span>
+          <i class="fa-solid fa-hourglass-half text-indigo-400 text-sm"></i>
+        </div>
+        <div id="kpi-total-hours" class="text-2xl font-bold font-display text-white">0.0 hrs</div>
+        <div class="text-[11px] text-slate-400 mt-1">Cumulative deep work</div>
+      </div>
+
+      <!-- Card: Concepts Mastered -->
+      <div class="glass-card p-4 relative overflow-hidden group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium uppercase tracking-wider">Concepts</span>
+          <i class="fa-solid fa-lightbulb text-amber-400 text-sm"></i>
+        </div>
+        <div id="kpi-total-concepts" class="text-2xl font-bold font-display text-white">0</div>
+        <div class="text-[11px] text-slate-400 mt-1">Target competencies</div>
+      </div>
+
+      <!-- Card: Rolling Moving Average & Velocity -->
+      <div class="glass-card p-4 relative overflow-hidden group col-span-2 sm:col-span-1">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium uppercase tracking-wider">Moving Avg</span>
+          <i class="fa-solid fa-chart-line text-emerald-400 text-sm"></i>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="kpi-weekly-ma" class="text-2xl font-bold font-display text-white">0.0 h/d</span>
+          <span class="text-xs text-slate-400">7-day</span>
+        </div>
+        <div class="mt-1 flex flex-wrap items-center gap-2">
+          <span id="kpi-velocity-badge" class="text-[11px] text-slate-400"></span>
+          <span class="text-[11px] text-slate-400">30-day: <span id="kpi-monthly-ma">0.0 h/d</span></span>
+        </div>
+      </div>
+
+      <!-- Card: Consistency Pulse Rate & Active Days -->
+      <div class="glass-card p-4 relative overflow-hidden group">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium uppercase tracking-wider">Consistency</span>
+          <i class="fa-solid fa-heart-pulse text-rose-400 text-sm"></i>
+        </div>
+        <div id="kpi-consistency-rate" class="text-2xl font-bold font-display text-white">0.0%</div>
+        <div class="text-[11px] text-slate-400 mt-1"><span id="kpi-active-days">0</span> active days in the last year</div>
+      </div>
+
+      <!-- Card: Streaks & Competency Rating -->
+      <div class="glass-card p-4 relative overflow-hidden group col-span-2 md:col-span-4 lg:col-span-1">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium uppercase tracking-wider">Streak & Mastery</span>
+          <i class="fa-solid fa-fire text-orange-400 text-sm"></i>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <div>
+            <div id="kpi-current-streak" class="text-xl font-bold font-display text-orange-400">0 days</div>
+            <div class="text-[10px] text-slate-400">Current streak · best <span id="kpi-longest-streak">0 days</span></div>
+          </div>
+          <div class="text-right">
+            <div id="kpi-avg-mastery" class="text-xl font-bold font-display text-indigo-400">0.0 / 5</div>
+            <div class="text-[10px] text-slate-400">Avg score</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- 2. GITHUB-STYLE 52-WEEK CONTRIBUTION MATRIX (Pillar 2) -->
+    <section class="glass-card p-5">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-display font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-calendar-days text-indigo-400"></i>
+            52-Week Learning Consistency Heatmap
+          </h2>
+          <p class="text-xs text-slate-400">Interactive matrix mapping 365+ daily study intervals, concept counts, and mastery ratings</p>
+        </div>
+        
+        <!-- Matrix Color Legend -->
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span>Less</span>
+          <div class="flex items-center gap-1">
+            <div class="w-2.5 h-2.5 rounded-sm cell-lvl-0"></div>
+            <div class="w-2.5 h-2.5 rounded-sm cell-lvl-1"></div>
+            <div class="w-2.5 h-2.5 rounded-sm cell-lvl-2"></div>
+            <div class="w-2.5 h-2.5 rounded-sm cell-lvl-3"></div>
+            <div class="w-2.5 h-2.5 rounded-sm cell-lvl-4"></div>
+          </div>
+          <span>More</span>
+        </div>
+      </div>
+
+      <!-- Heatmap Scrollable Wrapper -->
+      <div class="heatmap-container relative">
+        <!-- Month Header Labels Row -->
+        <div id="heatmap-months" class="h-5 relative mb-1">
+          <!-- Populated by JS -->
+        </div>
+
+        <div class="flex items-start gap-2">
+          <!-- Day Labels (Mon, Wed, Fri) -->
+          <div class="flex flex-col gap-3 text-[10px] text-slate-500 font-medium pt-0.5 select-none pr-1">
+            <span>Mon</span>
+            <span>Wed</span>
+            <span>Fri</span>
+          </div>
+
+          <!-- 52 Columns Grid Container -->
+          <div id="heatmap-grid" class="heatmap-grid">
+            <!-- Dynamically populated 52-week stacks -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. ADVANCED ANALYTICS CHARTS (Pillar 2: Rolling Improvement Metrics & Multi-Stack Breakdown) -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Time-Series: Rolling Improvement Curves (7-Day vs 30-Day Moving Average) -->
+      <div class="glass-card p-5 lg:col-span-2">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-wave-square text-indigo-400"></i>
+              Automated Rolling Improvement Engine
+            </h3>
+            <p class="text-xs text-slate-400">Weekly moving average vs. 30-day baseline smoothing over recent sprints</p>
+          </div>
+          <span class="text-xs px-2.5 py-1 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">90-Day Window</span>
+        </div>
+        <div class="h-64 sm:h-72 w-full relative">
+          <canvas id="rolling-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Doughnut/Distribution: Technology Stack Hours & Mastery -->
+      <div class="glass-card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-chart-pie text-emerald-400"></i>
+              Stack Mastery & Distribution
+            </h3>
+            <p class="text-xs text-slate-400">Time allocation across active languages</p>
+          </div>
+        </div>
+        <div class="h-64 sm:h-72 w-full flex items-center justify-center relative">
+          <canvas id="languages-chart"></canvas>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- 4. ACTION HUB: DRAG-AND-DROP BULK IMPORT & REAL-TIME MANUAL LOGGING (Pillar 1) -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Manual Logging Form with Real-Time Validation -->
+      <div class="glass-card p-5 lg:col-span-7">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-pen-to-square text-indigo-400"></i>
+              Record Learning Sprint
+            </h3>
+            <p class="text-xs text-slate-400">Logs automatically update rolling analytics and sync to 'python_summary.xlsx'</p>
+          </div>
+          <span class="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">Real-Time Sync</span>
+        </div>
+
+        <form id="manual-log-form" class="space-y-4" novalidate>
+          <input type="hidden" id="log-edit-id" value="" />
+          <div id="edit-banner" class="hidden items-center justify-between gap-2 p-2.5 rounded-lg text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300">
+            <span><i class="fa-solid fa-pen mr-1"></i> Editing an existing session</span>
+            <button type="button" id="log-cancel-edit" class="underline hover:text-amber-200">Cancel</button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+            <!-- Date Picker -->
+            <div>
+              <label for="log-date" class="block text-xs font-semibold text-slate-300 mb-1">Session Date</label>
+              <input type="date" id="log-date" required min="2000-01-01" max="{{ today }}" class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+            </div>
+
+            <!-- Language / Stack -->
+            <div>
+              <label for="log-language" class="block text-xs font-semibold text-slate-300 mb-1">Language / Stack</label>
+              <input id="log-language" list="language-options" required maxlength="40" value="Python" autocomplete="off" class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+              <datalist id="language-options">
+                <option value="Python"></option>
+                <option value="SQL"></option>
+                <option value="Java"></option>
+                <option value="Docker"></option>
+                <option value="Machine Learning"></option>
+                <option value="TypeScript"></option>
+                <option value="Go"></option>
+                <option value="Kubernetes"></option>
+                <option value="System Design"></option>
+              </datalist>
+            </div>
+
+            <!-- Hours Spent -->
+            <div>
+              <label for="log-hours" class="block text-xs font-semibold text-slate-300 mb-1">Time Spent (Hours)</label>
+              <input type="number" id="log-hours" step="0.1" min="0.1" max="24" value="1.5" required class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+            </div>
+          </div>
+
+          <!-- Topic / Concept Area -->
+          <div>
+            <label for="log-topic" class="block text-xs font-semibold text-slate-300 mb-1">Topic / Specific Concept Internalized</label>
+            <input type="text" id="log-topic" maxlength="200" placeholder="e.g. Window Functions (DENSE_RANK, NTILE) or Transformer Q-K-V Attention" required class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <!-- Concepts Count -->
+            <div>
+              <label for="log-concepts" class="block text-xs font-semibold text-slate-300 mb-1">Concepts Count</label>
+              <input type="number" id="log-concepts" min="1" max="500" step="1" value="2" required class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+            </div>
+
+            <!-- Mastery Score (1 to 5) -->
+            <div>
+              <label for="log-mastery" class="block text-xs font-semibold text-slate-300 mb-1">Mastery Rating</label>
+              <select id="log-mastery" class="w-full text-xs px-3 py-2.5 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition">
+                <option value="5">⭐⭐⭐⭐⭐ 5 - Master (Can architect & teach)</option>
+                <option value="4" selected>⭐⭐⭐⭐ 4 - Proficient (Fluent production use)</option>
+                <option value="3">⭐⭐⭐ 3 - Competent (Solid baseline knowledge)</option>
+                <option value="2">⭐⭐ 2 - Advanced Beginner (Needs reference docs)</option>
+                <option value="1">⭐ 1 - Novice (Introductory exposure)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Notes / Key Learnings -->
+          <div>
+            <label for="log-notes" class="block text-xs font-semibold text-slate-300 mb-1">Key Takeaway / Implementation Notes (Optional)</label>
+            <input type="text" id="log-notes" maxlength="1000" placeholder="e.g. Solved 3 LeetCode mediums and benchmarked execution plans" class="w-full text-xs px-3 py-2 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 transition" />
+          </div>
+
+          <!-- Submit Button -->
+          <div class="flex items-center justify-end pt-1">
+            <button type="submit" id="log-submit-btn" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white shadow-lg shadow-indigo-600/25 transition">
+              <i class="fa-solid fa-plus"></i>
+              <span>Log Session & Trigger Sync</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Drag-and-Drop Bulk File Import (Pillar 1: CSV, XLSX, JSON) -->
+      <div class="glass-card p-5 lg:col-span-5 flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-cloud-arrow-up text-emerald-400"></i>
+              Bulk Multi-Format Ingestion
+            </h3>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Auto-Mapping</span>
+          </div>
+          <p class="text-xs text-slate-400 mb-4">
+            Drag and drop legacy study records in any format. Schema fields are auto-normalized and inserted atomically.
+          </p>
+
+          <!-- Dropzone Container -->
+          <div id="dropzone" role="button" tabindex="0" aria-label="Upload a CSV, Excel or JSON file" class="dropzone p-8 flex flex-col items-center justify-center text-center">
+            <input type="file" id="file-input" accept=".csv, .xlsx, .xls, .json" class="hidden" />
+            
+            <div class="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-3 text-indigo-400 dropzone-icon">
+              <i class="fa-solid fa-file-import text-2xl"></i>
+            </div>
+            
+            <p class="text-sm font-semibold text-slate-200">
+              Drag & Drop file here or <span class="text-indigo-400 underline decoration-indigo-400/40">browse</span>
+            </p>
+            <p class="text-xs text-slate-400 mt-1">Accepts CSV, Excel (.xlsx, .xls), or JSON</p>
+
+            <!-- Supported Format Badges -->
+            <div class="flex items-center gap-2 mt-4">
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">.CSV</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">.XLSX</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-300 border border-slate-700">.JSON</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+          <span class="flex items-center gap-1.5">
+            <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+            Transactional rollback on error
+          </span>
+          <span class="font-mono">Max: {{ max_upload_mb }} MB</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- 5. RECENT SESSIONS LEDGER & AUDIT TRAIL -->
+    <section class="glass-card p-5">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-list-check text-indigo-400"></i>
+            Recent Learning Ledger
+          </h3>
+          <p class="text-xs text-slate-400">Filtered session records with granular concept counters and mastery scores · <span id="logs-count-label">0 sessions</span></p>
+        </div>
+        <div class="relative w-full sm:w-64">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+          <input type="search" id="logs-search" maxlength="100" placeholder="Search topic, notes or stack" aria-label="Search learning sessions" class="w-full text-xs pl-8 pr-3 py-2 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+      </div>
+
+      <!-- Ledger Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs">
+          <thead>
+            <tr class="border-b border-slate-700/80 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+              <th class="py-3 px-4">Date</th>
+              <th class="py-3 px-4">Stack</th>
+              <th class="py-3 px-4">Concept / Area</th>
+              <th class="py-3 px-4 text-center">Concepts</th>
+              <th class="py-3 px-4 text-right">Time</th>
+              <th class="py-3 px-4 text-center">Mastery</th>
+              <th class="py-3 px-4 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody id="logs-table-body" class="divide-y divide-slate-800/60">
+            <!-- Dynamically populated via JS -->
+            <tr>
+              <td colspan="7" class="text-center py-6 text-slate-400">
+                <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading learning entries...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flex justify-center mt-4">
+        <button type="button" id="logs-load-more" class="hidden px-4 py-2 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">
+          Load more
+        </button>
+      </div>
+    </section>
+
+    {% if user.role == 'admin' %}
+    <!-- 6. ADMIN: USERS, ROLES & SYNC AUDIT TRAIL -->
+    <section class="glass-card p-5" id="admin-section">
+      <div class="mb-4">
+        <h3 class="text-sm font-display font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-user-shield text-rose-400"></i>
+          Admin Console
+        </h3>
+        <p class="text-xs text-slate-400">Manage user roles and review the Excel sync audit trail</p>
+      </div>
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-700/80 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                <th class="py-2 px-3">User</th>
+                <th class="py-2 px-3 text-right">Sessions</th>
+                <th class="py-2 px-3 text-right">Hours</th>
+                <th class="py-2 px-3">Last active</th>
+                <th class="py-2 px-3">Role</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-body"><tr><td colspan="5" class="py-4 text-center text-slate-400">Loading…</td></tr></tbody>
+          </table>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b border-slate-700/80 text-slate-400 font-semibold uppercase tracking-wider text-[11px]">
+                <th class="py-2 px-3">When</th>
+                <th class="py-2 px-3">User</th>
+                <th class="py-2 px-3 text-right">Records</th>
+                <th class="py-2 px-3">Status</th>
+              </tr>
+            </thead>
+            <tbody id="admin-audit-body"><tr><td colspan="4" class="py-4 text-center text-slate-400">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-12 py-6 border-t border-slate-800/80 text-center text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+      <p>Consistency Pulse™ Enterprise • Progressive Web App</p>
+      <p class="flex items-center gap-3">
+        <span>SQLite + Werkzeug Security</span>
+        <span>•</span>
+        <span>Pandas Rolling Engine</span>
+        <span>•</span>
+        <span>OpenPyXL Cloud Sync</span>
+      </p>
+    </div>
+  </footer>
+
+  <!-- Account / Change Password Dialog -->
+  <div id="account-modal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+    <div class="glass-card modal-card w-full max-w-sm p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 id="account-modal-title" class="text-sm font-display font-bold text-white">Account</h3>
+        <button type="button" id="account-close" aria-label="Close" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="text-xs text-slate-400 space-y-0.5">
+        <div><span class="text-slate-500">Username:</span> <span class="text-slate-200">{{ user.username }}</span></div>
+        <div><span class="text-slate-500">Email:</span> <span class="text-slate-200">{{ user.email }}</span></div>
+        <div><span class="text-slate-500">Role:</span> <span class="text-slate-200">{{ user.role }}</span></div>
+      </div>
+      <form id="password-form" class="space-y-3" novalidate>
+        <div>
+          <label for="pw-current" class="block text-xs font-semibold text-slate-300 mb-1">Current password</label>
+          <input type="password" id="pw-current" autocomplete="current-password" required maxlength="128" class="w-full text-xs px-3 py-2 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div>
+          <label for="pw-new" class="block text-xs font-semibold text-slate-300 mb-1">New password</label>
+          <input type="password" id="pw-new" autocomplete="new-password" required minlength="8" maxlength="128" placeholder="8+ characters, letters and numbers" class="w-full text-xs px-3 py-2 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <div>
+          <label for="pw-confirm" class="block text-xs font-semibold text-slate-300 mb-1">Confirm new password</label>
+          <input type="password" id="pw-confirm" autocomplete="new-password" required maxlength="128" class="w-full text-xs px-3 py-2 rounded-lg bg-slate-800/90 border border-slate-700 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        </div>
+        <button type="submit" id="pw-submit" class="w-full py-2 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white transition">Update password</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Application Frontend Controller -->
+  <script src="/static/js/app.js?v=3"></script>
+</body>
+</html>
